@@ -1,0 +1,492 @@
+#!/usr/bin/perl
+use strict;
+#use warnings;
+use File::Basename;
+use File::Glob ':glob';
+use File::Path qw(make_path);
+
+my $log_s = "D\:\\eVision\\data\\log_rev\\log_s\\";
+my $log_a = "D\:\\eVision\\data\\log_rev\\log_a\\";
+my $log_b = "D\:\\eVision\\data\\log_rev\\log_b\\";
+my $stage_folder = "D\:\\eVision\\data\\log.old.stage\\";
+
+my $feds_folder   = "D\:\\evision\\data\\batch\\";
+my $parcel_folder = "D\:\\evision\\data\\parcels\\";
+my $batch_folder  = "D\:\\evision\\data\\batch\\";
+my $evision_data_folder  = "D\:\\evision\\data\\log\\";
+
+my $log_user_base = "D\:\\Paul\\";
+my $log_user      = "${log_user_base}logs\\";
+my $log_user_temp = "${log_user_base}logs\\"; #making this the same as above for now, can chanfe if needed to do a check first on the logs to make sure all the errors are documented
+my $log_user_b = "${log_user_base}logs_b\\";
+
+my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
+	#printf("Time Format - HH:MM:SS\n");
+	#print "$sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst";
+my $log_folder = sprintf("${log_user_base}\\logs.%04d%02d%02d", ($year+1900), ($mon+1), $mday);
+my $log_batchsuffix = sprintf("%04d%02d%02d-%02d%02d", ($year+1900), ($mon+1), $mday, $hour, $min);
+
+sub main() {
+	make_path("$log_user_base") if (! -d "$log_user_base");
+	make_path("$log_user")      if (! -d "$log_user");
+	make_path("$log_folder")    if (! -d "$log_folder"); 
+	make_path("$log_user")      if (! -d "$log_user");
+	make_path("$log_user_b")    if (! -d "$log_user_b"); 
+	make_path("$log_user_temp") if (! -d "$log_user_temp");
+
+#	system("log_cpy.bat");
+	log_splitter(${log_b}, ${log_user_temp});
+	system("del $log_user_b\\*");
+	system("copy /-Y $log_b\\* $log_user_b");
+	system("copy /-Y $log_s\\* $log_user");
+	stage_arch();
+
+
+}
+sub stage_arch(){
+	my @files = grep -f, glob "${log_a}*";
+	my $stage_file = "${log_user}stagefile_${log_batchsuffix}.bat";
+	open (FILE_FOLDERS, ">>", "${stage_file}") || die "problem opening \(DEFAULT STAGE\): ${stage_file}\n";
+	foreach my $file (@files) {
+		my $filename = basename($file);
+		if ($filename =~ /(L-TMSIB_\d{6,8}|L-TMSIB\d{6,8}|L-UPS824IB_\w+|L-SY\d{6}|L-SH\d{8}|L-SSIEDIOB_\d{8}\d{4}.log)/ ) {
+			#skip_filing_for_a_day
+		} if ($filename =~ /(L-\$SSIEV_MSTRID|L--u|L-YES|L-ANYPID|L-ANY|L-MyPutMail|L-tms_xml.log|L-bby_xml.log|L-bby_xml|L-SY|L-jhs|L-ssi850i)/ ) {
+			print FILE_FOLDERS "\nmove /-Y ${evision_data_folder}${filename} ${stage_folder}${filename}_${log_batchsuffix}";
+		} else {
+			#system("move /-Y ${evision_data_folder}${file}  ${stage_folder}");
+			print FILE_FOLDERS "\nmove /-Y ${evision_data_folder}${filename}  ${stage_folder}";
+		}
+	}
+	close (FILE_FOLDERS);
+}
+sub log_splitter() {
+	# my $input_dir = $ARGV[0];
+	# my $output_dir = $ARGV[1];
+	my ($input_dir, $output_dir) = @_;
+	my $count = 0;
+
+	my ($FLAG, $Action, $TypeFlag, $InfoQual, $Info, $OUTBOUND_EDI_LINES,$gfile,$gdir,$logdate) = '';
+	my ($Batch, $S_Batch, $Carrier, $PCL, $RTM, $FEDS, $APP) = "";
+	my %FEDS_HASH = "";
+	my $subfolder = '';
+
+	# Read input files
+	my @files = glob( $input_dir . '/*' );
+	#print join(", ", @files);
+
+	# iterate over input files
+	foreach my $file (@files) { 
+		#Before opening 2... last files, If $OUTBOUND_EDI_LINES has lines  and FLAG not empty
+		if (${FLAG} ne "" && ${OUTBOUND_EDI_LINES} ne "") { 
+			my $new_filename = "${output_dir}${subfolder}${logdate}#EOF-${FLAG}#${Action}#${Carrier}#${APP}#${RTM}#${FEDS}#${PCL}#${Batch}${S_Batch}#${gfile}";
+			if (! -d "${output_dir}\\${subfolder}") { 
+				make_path("${output_dir}\\${subfolder}");
+			}
+			open (OUTPUT_FILE, ">>", "${new_filename}") || die "problem opening \(DEFAULT 32\): ${new_filename}\n";
+			print OUTPUT_FILE ${OUTBOUND_EDI_LINES};
+			print OUTPUT_FILE "END:  32"; close (OUTPUT_FILE);
+			
+			my $move_filename = "${log_user}move_${log_batchsuffix}.bat";
+			open (S_TO_FOLDERS, ">>", "${move_filename}") || die "problem opening \(DEFAULT 32\): ${move_filename}\n";
+			print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${feds_folder}${FEDS} ${output_dir}\\${subfolder}" if (${FEDS} ne "");
+			print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${parcel_folder}${PCL} ${output_dir}\\${subfolder}" if (${PCL} ne "");
+			print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${Batch} ${output_dir}\\${subfolder}" if (${Batch} ne "");
+			print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${S_Batch} ${output_dir}\\${subfolder}" if (${S_Batch} ne "");
+			print S_TO_FOLDERS "\n${subfolder}\:move /-Y \.\\${gfile}_S ${output_dir}\\${subfolder}";
+			close (S_TO_FOLDERS);
+
+			($FLAG, $Action, $TypeFlag, $InfoQual, $Info, $OUTBOUND_EDI_LINES,$gfile,$gdir,$logdate) = '';
+			($Batch, $S_Batch, $Carrier, $PCL, $RTM, $FEDS, $APP) = "";
+			%FEDS_HASH = "";
+			$subfolder = '';
+			#print "clearing action\n";
+
+		}
+		$subfolder = '';
+
+		
+	
+
+		#FOR OUTBOUND EDI (MAP/GEN/ENV) ERRORS
+		my ($ADF, $Q, $U, $D) = "";
+		($PCL, $RTM, $FEDS, $APP)="";
+
+		open (INPUT_FILE, $file) || die "cannot open $file for reading: $!";
+		if ($OUTBOUND_EDI_LINES ne "" and $FLAG ne "") {
+			# write something out now, reach end of file
+			print ${OUTBOUND_EDI_LINES};
+		}
+
+		$gfile = basename($file);
+		$gdir  = dirname($file);
+		my $line = "";
+
+		while ($line=<INPUT_FILE>) { 
+			#print "$file\n";
+		    $logdate  = substr($line, 17, 8);
+			$Action   = substr($line, 35, 3);
+			$TypeFlag = substr($line, 39, 3);
+			$InfoQual = substr($line, 43, 3);
+			$Info     = substr($line, 49, 80); 
+			
+			#directories for errors/warnings
+			if ($subfolder eq '') {
+				$subfolder = 'Y_COMM_NO_FILES/' if ($Info =~ /^Error\: Source file does not exist./);
+				$subfolder = 'Y_Ack/' if ($Info =~ /(Ack.d Document not found in Main Index File. will attempt to update document|Cannot find acknowledged functional group in main index table \(MAIN\)|Cannot find acknowledged envelope in main index table \(MAIN\)|Acknowledged functional group previously acknowledged with 'A' status|Functional Group with acknowledgment status of E should have at least 1 document|Acknowledged functional group marked as expecting no acknowledgments)/);
+				$subfolder = "X_IGNORE_${RTM}\/" if ($Info =~ /^Error\: Error finding child container CON_LOOP in wellsfargo845i_csv/);
+				$subfolder = "X_IGNORE_${RTM}\/" if ($Info =~ /^Ferg ship to /);
+				$subfolder = "X_IGNORE_${RTM}\/" if ($Info =~ /^Climatic ship to /);		
+				$subfolder = "X_IGNORE_${RTM}\/" if ($Info =~ /^Source zip not on table/);		
+				$subfolder = 'X_IGNORE_CEVA_MEX/' if ($Info =~ /^Document Rejected\: Type\:846  Partner\:CEVA_MEX/);	
+				$subfolder = '0_Ack_rej/' if ($Info =~ /[Gg]roup rejected .* acknowledgment/);
+				$subfolder = '0_Ack_rej/' if ($Info =~ /[Gg]roup rejected .* acknowledgement/);
+				$subfolder = '0_Ack_rej/' if ($Info =~ /[Dd]ocument rejected .* acknowledgment/);
+				$subfolder = '0_Ack_rej/' if ($Info =~ /[Dd]ocument rejected .* acknowledgement/);
+				$subfolder = '0_Ack_rej/' if ($Info =~ /[Ss]egment .* acknowledgment/);
+				$subfolder = '0_Ack_rej/' if ($Info =~ /[Ss]egment .* acknowledgement/);
+				#$subfolder = 'Generic_867/' if ($Info =~ /Error\: Error finding child container BPT in Generic 867\(Map\)/);
+				$subfolder = '0_NON_EDI/' if ($Info =~ /NON-EDI Data/);
+				$subfolder = "${1}_${2}_Table\/" if ($Info =~ /(\S+) not found on (\S+) table/);
+				$subfolder = "X_Nulls/" if ($Info =~ /Error\: Null value for variable '\S+'/ && $subfolder eq '');
+				$subfolder = "X_Truncating/" if ($Info =~ /Warning\: Truncating / && $subfolder eq '');
+				$subfolder = "NoPRDI/" if ($Info =~ /No PRDI files queued for Envelope/ && $subfolder eq '');
+				$subfolder = "X_Compilation_${1}/" if ($Info =~ /Warning\: Warning\(s\) during compilation of 'macro\\(\S+)'/ && $subfolder eq '');
+				$subfolder = "Y_Check_${2}\/" if ($Info =~ /Error\: Child '(\w+)' not defined in (wellsfargo845i_csv)\(Map\)/ && $subfolder eq ''); 
+				$subfolder = "Check_${2}\/" if ($Info =~ /Error\: Child '(\w+)' not defined in (\S+)\(Map\)/ && $subfolder eq ''); 
+				$subfolder = "X_IGNORE_Staples_037015245/" if ($Info =~ /batch\:R\w{7}\s+offset\:\d+\s+partner\:037015245/ && $subfolder eq ''); 
+				$subfolder = "X_IGNORE_GBMICRO/" if ($Info =~ /batch\:R\w{7}\s+offset\:\d+\s+partner\:GBMICRO/ && $subfolder eq ''); 
+				$subfolder = "X_NOTSURE_Insight_6309246701/" if ($Info =~ /batch\:R\w{7}\s+offset\:\d+\s+partner\:6309246701/ && $subfolder eq ''); 
+				$subfolder = "X_NOTSURE_ORourke_5638231501/" if ($Info =~ /batch\:R\w{7}\s+offset\:\d+\s+partner\:5638231501/ && $subfolder eq ''); 
+				$subfolder = "X_Almo_0006255032/" if ($Info =~ /Error\:   expression\: if \(sap_no \= \"0006255032\"\)/ && $subfolder eq ''); 
+				$subfolder = "CONNS_7738420566/" if ($Info =~ /Partner\:7738420566  Batch\:S\w{7}  Beg Offset\:\d+\./ && $subfolder eq './ && $TypeFlag eq "ERR"'); 
+				$subfolder = "Database_Error/" if ($Info =~ /Database Error\: / && $subfolder eq ''); 
+				$subfolder = "1_Document_Rejected_${2}_${1}/" if ($Info =~ /Document Rejected: Type\:(\w+)  Partner\:(\S+)  Ctl\#\:\d+/ && $subfolder eq ''); 
+				$subfolder = "3_IGNORE_ONLY_TARGET_860_6111470100/" if ($Info =~ /batch\:R\w{7}\s+offset\:\d+\s+partner\:6111470100/ && $subfolder eq ''); 
+				
+				
+				#ADDITIONAL FILTERS
+				$subfolder = "Z_childcontainer_${1}_${RTM}\/" if ($Info =~ /Error\: Error finding child container \S+ in (\S+)\/\S+/ && $subfolder eq ''); 
+				$subfolder = 'Z_TMSIB_Logs/' if ($line =~ /^TMSIB_.{28} TRN ERR OPR   .+\- No data to process\!/ && $subfolder eq ''); 
+				$subfolder = "Z_${APP}_NOFILES\/" if ($Info =~ /^Source file does not exist\./);
+
+
+			}
+
+			#capture last sent file for ack errors
+			if ($subfolder eq '0_Ack_rej' || $subfolder eq 'CONNS_7738420566') {
+				if ($Info =~ /[Bb]atch\:\s*(S\w{7})\s/)
+					{
+						$S_Batch = $_{1};
+					}
+			}
+			
+			#FOR OUTBOUND EDI (MAP/GEN/ENV) ERRORS
+			#i.e. MAP DTL DES   Running map -s tmp\pcl071196415 -a amkor856.adf -q 243493 -u 3243493 
+			if ( $line =~ /^.{34} MAP DTL DES   Running map \-s tmp\\(\S+) \-a (\S+) \-q (\S+) \-u (\S+)/) { 
+				($PCL, $ADF, $Q, $U) = ($1,$2,$3,$4);
+				$OUTBOUND_EDI_LINES = "$OUTBOUND_EDI_LINES"."$line";
+			} elsif ( $line =~ /^.{34} MAP DTL DES   Running map \-q (\S+) \-u (\S+)/) { 
+				($Q, $U) = ($1,$2);
+				$OUTBOUND_EDI_LINES = "$OUTBOUND_EDI_LINES"."$line";
+			} 
+			#outbound map
+			if ( $line =~ /^.{34} MAP DTL DES   Running map \-s tmp\\(\S+) \-a (\S+) \-u (\S+) \-d (\S+)/) { 
+				($PCL, $ADF, $U, $D) = ($1,$2,$3,$4);
+				$OUTBOUND_EDI_LINES = "$OUTBOUND_EDI_LINES"."$line";
+			}
+			
+			# PMF			
+			if ( $line =~ /^.{34} PMF /) { #just writing everything in case there is an error and need to decipher
+				$OUTBOUND_EDI_LINES = "$OUTBOUND_EDI_LINES"."$line";
+			}
+			if ( $line =~ /^.{34} PMF SUM DES   Total Documents Processed \= [0-9]+   Failures \= [1-9]+/ ) {
+				$subfolder = "PMF/";
+				if (! -d "${output_dir}\\${subfolder}") { 
+					make_path("${output_dir}\\${subfolder}");
+				}
+				my $new_filename = "${output_dir}${subfolder}${logdate}#${FLAG}#${Action}#${Carrier}#${RTM}#${FEDS}#${PCL}#${Batch}${S_Batch}#${gfile}";
+				open (OUTPUT_FILE, ">>", "${new_filename}") || die "problem opening \(DEFAULT 119\): ${new_filename}\n";
+				print OUTPUT_FILE "$OUTBOUND_EDI_LINES";
+				print OUTPUT_FILE "END: 119"; close (OUTPUT_FILE);
+				
+				my $move_filename = "${log_user}move_${log_batchsuffix}.bat";
+				open (S_TO_FOLDERS, ">>", "${move_filename}") || die "problem opening \(DEFAULT 119\): ${move_filename}\n";
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${feds_folder}${FEDS} ${output_dir}\\${subfolder}" if (${FEDS} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${parcel_folder}${PCL} ${output_dir}\\${subfolder}" if (${PCL} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${Batch} ${output_dir}\\${subfolder}" if (${Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${S_Batch} ${output_dir}\\${subfolder}" if (${S_Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:move /-Y \.\\${gfile}_S ${output_dir}\\${subfolder}";
+				close (S_TO_FOLDERS);
+				
+				($FLAG, $OUTBOUND_EDI_LINES) = '';
+				$subfolder = '';
+			} elsif ( $line =~ /^.{34} PMF SUM DES   Total Documents Processed \= [0-9]+   Failures \= 0/ && ($FLAG eq "ERR" || $FLAG eq "WRN")) {
+				$subfolder = "IGNORE_PMF/";
+				if (! -d "${output_dir}\\${subfolder}") { 
+					make_path("${output_dir}\\${subfolder}");
+				}
+				my $new_filename = "${output_dir}${subfolder}${logdate}#${FLAG}#${Action}#${Carrier}#${RTM}#${FEDS}#${PCL}#${Batch}${S_Batch}#${gfile}";
+				open (OUTPUT_FILE, ">>", "${new_filename}") || die "problem opening \(DEFAULT 130\): ${new_filename}\n";
+				print OUTPUT_FILE "$OUTBOUND_EDI_LINES";
+				print OUTPUT_FILE "END: 130"; close (OUTPUT_FILE);
+				
+				my $move_filename = "${log_user}move_${log_batchsuffix}.bat";
+				open (S_TO_FOLDERS, ">>", "${move_filename}") || die "problem opening \(DEFAULT 130\): ${move_filename}\n";
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${feds_folder}${FEDS} ${output_dir}\\${subfolder}" if (${FEDS} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${parcel_folder}${PCL} ${output_dir}\\${subfolder}" if (${PCL} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${Batch} ${output_dir}\\${subfolder}" if (${Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${S_Batch} ${output_dir}\\${subfolder}" if (${S_Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:move /-Y \.\\${gfile}_S ${output_dir}\\${subfolder}";
+				close (S_TO_FOLDERS);
+			
+				($FLAG, $OUTBOUND_EDI_LINES) = '';
+				$subfolder = '';
+			} elsif ( $line =~ /^.{34} PMF WRN DES   No data to process\./ ){
+				$subfolder = "IGNORE_PMF/";
+				if (! -d "${output_dir}\\${subfolder}") { 
+					make_path("${output_dir}\\${subfolder}");
+				}
+				my $new_filename = "${output_dir}${subfolder}${logdate}#${FLAG}#${Action}#${Carrier}#${RTM}#${FEDS}#${PCL}#${Batch}${S_Batch}#${gfile}";
+				open (OUTPUT_FILE, ">>", "${new_filename}") || die "problem opening \(DEFAULT 141\): ${new_filename}\n";
+				print OUTPUT_FILE "$OUTBOUND_EDI_LINES";
+				print OUTPUT_FILE "END: 141"; close (OUTPUT_FILE);
+				
+				my $move_filename = "${log_user}move_${log_batchsuffix}.bat";
+				open (S_TO_FOLDERS, ">>", "${move_filename}") || die "problem opening \(DEFAULT 141\): ${move_filename}\n";
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${feds_folder}${FEDS} ${output_dir}\\${subfolder}" if (${FEDS} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${parcel_folder}${PCL} ${output_dir}\\${subfolder}" if (${PCL} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${Batch} ${output_dir}\\${subfolder}" if (${Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${S_Batch} ${output_dir}\\${subfolder}" if (${S_Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:move /-Y \.\\${gfile}_S ${output_dir}\\${subfolder}";
+				close (S_TO_FOLDERS);
+				($FLAG, $OUTBOUND_EDI_LINES) = '';
+				$subfolder = '';
+			}
+			# MAP
+			#MAP ERRORS
+			if ( ($line =~ /^.{34} MAP SUM DES/ && ($FLAG eq "ERR" || $FLAG eq "WRN") ) ) { #|| 
+			     #$line =~ /^.{34} MAP WRN DES/  ) { # || $line =~ /^.{34} MAP ERR DES/ ) {
+				if (! -d "${output_dir}\\${subfolder}") { 
+					make_path("${output_dir}\\${subfolder}");
+				}
+				my $rtm_name = $FEDS_HASH{$FEDS};
+				$rtm_name = $RTM if ($rtm_name eq "");
+				$FLAG = $TypeFlag;
+				my $new_filename = "${output_dir}${subfolder}${logdate}#${FLAG}#${Action}#${Carrier}#${RTM}#${FEDS}#${PCL}#${Batch}${S_Batch}#${gfile}";
+				open (OUTPUT_FILE, ">>", "${new_filename}") || die "problem opening \(DEFAULT 158\): ${new_filename}\n";
+				print OUTPUT_FILE "$OUTBOUND_EDI_LINES";
+				print OUTPUT_FILE "END: 158"; close (OUTPUT_FILE);
+				
+				my $move_filename = "${log_user}move_${log_batchsuffix}.bat";
+				open (S_TO_FOLDERS, ">>", "${move_filename}") || die "problem opening \(DEFAULT 158\): ${move_filename}\n";
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${feds_folder}${FEDS} ${output_dir}\\${subfolder}" if (${FEDS} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${parcel_folder}${PCL} ${output_dir}\\${subfolder}" if (${PCL} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${Batch} ${output_dir}\\${subfolder}" if (${Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${S_Batch} ${output_dir}\\${subfolder}" if (${S_Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:move /-Y \.\\${gfile}_S ${output_dir}\\${subfolder}";
+				close (S_TO_FOLDERS);
+				
+				($FLAG, $OUTBOUND_EDI_LINES) = '';
+				$subfolder = '';
+			}
+			$APP = ${1} if ( $Info =~ /^.+\s([\w\_\-]+)\.app/);
+			
+			#i.e. MAP DTL DES   RTIME macro: ssisblogis856o.rtm
+			if ( $line =~ /^.{34} MAP DTL DES   RTIME macro: (macro\\)*(.+\.[Rr][Tt][Mm])/) { 
+				$RTM = ${2};
+				# print $RTM."\n";
+				($FLAG, $OUTBOUND_EDI_LINES) = '';
+				$subfolder = '';
+				$OUTBOUND_EDI_LINES = "$line";
+				#$OUTBOUND_EDI_LINES .= "$line";
+			}
+			#building FEDS files relationship to rtm/maps
+			elsif ( $line =~ /^.{34} MAP SUM DES   File \<(FEDS\d{4})\> added to GEN Queue/) { 
+				$FEDS = ${1} . '.ERR';
+				# print $FEDS_FILE."\n";
+				$FEDS_HASH{$FEDS} = $RTM; #pre-naming the Error file in the event we record an error
+			}
+			elsif ( $line =~ /^.{34} MAP DTL DES   (Moved )*[Oo]utput file:/ ){
+				#print $line;
+				if ($FLAG ne "" && $OUTBOUND_EDI_LINES ne "") {
+					my $rtm_name = $FEDS_HASH{$FEDS};
+					$rtm_name = $RTM if ($rtm_name eq "");
+					my $new_filename = "${logdate}#${FLAG}#${Action}#${Carrier}#${rtm_name}#${FEDS}#${PCL}#${Batch}${S_Batch}#${gfile}"; #$RTM name might not be accurate here.
+					if (! -d "${output_dir}\\${subfolder}") { 
+						make_path("${output_dir}\\${subfolder}");
+					}
+					open (OUTPUT_FILE, ">>", "${output_dir}\\${subfolder}${new_filename}") || die "problem opening \(DEFAULT 189\): ${subfolder}${new_filename}\n";
+					print OUTPUT_FILE "$OUTBOUND_EDI_LINES"."$line";
+					print OUTPUT_FILE "END: 189"; close (OUTPUT_FILE);
+					
+				my $move_filename = "${log_user}move_${log_batchsuffix}.bat";
+				open (S_TO_FOLDERS, ">>", "${move_filename}") || die "problem opening \(DEFAULT 189\): ${move_filename}\n";
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${feds_folder}${FEDS} ${output_dir}\\${subfolder}" if (${FEDS} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${parcel_folder}${PCL} ${output_dir}\\${subfolder}" if (${PCL} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${Batch} ${output_dir}\\${subfolder}" if (${Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${S_Batch} ${output_dir}\\${subfolder}" if (${S_Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:move /-Y \.\\${gfile}_S ${output_dir}\\${subfolder}";
+				close (S_TO_FOLDERS);
+					
+					$OUTBOUND_EDI_LINES = '';
+					$subfolder = '';
+				}
+				($FLAG, $OUTBOUND_EDI_LINES) = '';
+			}
+#			#i.e. GEN BEG DES   Processing FEDS file FEDS7095 for Generate
+#			elsif ( $line =~ /^.{34} GEN BEG DES   Processing FEDS file (\S+) for Generate/) { 
+#				$FEDS = $1;
+#				$OUTBOUND_EDI_LINES = "$OUTBOUND_EDI_LINES"."$line";
+#			}
+#			#i.e. GEN ERR DES   
+
+			elsif ( $line =~ /^.{34} GEN ERR DES   Renaming data\W+batch\W+FEDS\d{4} to data\W+batch\W+(FEDS\d{4}\.ERR)/ ) {
+				if ($FLAG ne "" && $OUTBOUND_EDI_LINES ne "")  { 
+					$subfolder = 'FEDS_ERRORS/';
+					$FEDS = ${1};
+					my $rtm_name = $FEDS_HASH{$FEDS};
+					$rtm_name = $RTM if ($rtm_name eq "");
+					my $new_filename = "${output_dir}${subfolder}${logdate}#${FLAG}#${Action}#${Carrier}#${rtm_name}#${FEDS}#${PCL}#${Batch}${S_Batch}#${gfile}";
+					if (! -d "${output_dir}\\${subfolder}") { 
+						make_path("${output_dir}\\${subfolder}");
+					}
+					open (OUTPUT_FILE, ">>", "${new_filename}") || die "problem opening \(DEFAULT 214\): ${new_filename}\n";
+					print OUTPUT_FILE "$OUTBOUND_EDI_LINES"."$line";
+					print OUTPUT_FILE "END: 214"; close (OUTPUT_FILE);
+					
+					my $move_filename = "${log_user}move_${log_batchsuffix}.bat";
+					open (S_TO_FOLDERS, ">>", "${move_filename}") || die "problem opening \(DEFAULT 214\): ${move_filename}\n";
+					print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${feds_folder}${FEDS} ${output_dir}\\${subfolder}" if (${FEDS} ne "");
+					print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${parcel_folder}${PCL} ${output_dir}\\${subfolder}" if (${PCL} ne "");
+					print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${Batch} ${output_dir}\\${subfolder}" if (${Batch} ne "");
+					print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${S_Batch} ${output_dir}\\${subfolder}" if (${S_Batch} ne "");
+					print S_TO_FOLDERS "\n${subfolder}\:move /-Y \.\\${gfile}_S ${output_dir}\\${subfolder}";
+					close (S_TO_FOLDERS);
+					
+					$OUTBOUND_EDI_LINES = '';
+					#$subfolder = '';
+				}				
+			}
+			#appending this single line output to above's last FEDS file error to reduce message outputs
+			elsif ( $subfolder eq 'FEDS_ERRORS/' && $FEDS ne '' && $line =~ /^.{34} GEN ERR DES   Syntax errors occurred during eVision processing/ ) {
+				my $LOCAL_FLAG = $TypeFlag;
+				my $rtm_name = $FEDS_HASH{$FEDS};
+				$rtm_name = $RTM if ($rtm_name eq "");
+				my $new_filename = "${output_dir}${subfolder}${logdate}#${LOCAL_FLAG}#${Action}#${Carrier}#${rtm_name}#${FEDS}#${PCL}#${Batch}${S_Batch}#${gfile}"; #note that we need to set local ERR vs using $FLAG variable, it could be reset if a following FEDS file after and error is OK
+				if (! -d "${output_dir}\\${subfolder}") { 
+					make_path("${output_dir}\\${subfolder}");
+				}
+				open (OUTPUT_FILE, ">>", "${new_filename}") || die "problem opening \(DEFAULT 230\): ${new_filename}\n";
+				print OUTPUT_FILE "$OUTBOUND_EDI_LINES"."$line";
+				print OUTPUT_FILE "END: 230"; close (OUTPUT_FILE);
+				
+				my $move_filename = "${log_user}move_${log_batchsuffix}.bat";
+				open (S_TO_FOLDERS, ">>", "${move_filename}") || die "problem opening \(DEFAULT 230\): ${move_filename}\n";
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${feds_folder}${FEDS} ${output_dir}\\${subfolder}" if (${FEDS} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${parcel_folder}${PCL} ${output_dir}\\${subfolder}" if (${PCL} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${Batch} ${output_dir}\\${subfolder}" if (${Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${S_Batch} ${output_dir}\\${subfolder}" if (${S_Batch} ne "");
+				print S_TO_FOLDERS "\n${subfolder}\:move /-Y \.\\${gfile}_S ${output_dir}\\${subfolder}";
+				close (S_TO_FOLDERS);
+				
+				$OUTBOUND_EDI_LINES = '';
+				$subfolder = ''; #can clear subfolder since this is close to the last error in the file
+
+			}
+			elsif ( $line =~ /^.{34} GEN BEG DES   Processing FEDS file FEDS\d{4} for Generate/) { 
+				$FLAG = "";
+				$OUTBOUND_EDI_LINES = "";
+			}
+			elsif ( $line =~ /^.{34} GEN ERR DES   /) { 
+				$FLAG = $TypeFlag;
+				$OUTBOUND_EDI_LINES = "$OUTBOUND_EDI_LINES"."$line";
+			}
+			#FOR TRN ERRORS
+			elsif ( $line =~ /^.{34} TRN SUM BA#   / ) {
+				if ($FLAG ne "" && $OUTBOUND_EDI_LINES ne "")  { 
+					my $new_filename = "${output_dir}${subfolder}${logdate}#${FLAG}#${Action}#${Carrier}#${RTM}#${FEDS}#${PCL}#${Batch}${S_Batch}#${gfile}";
+					if (! -d "${output_dir}\\${subfolder}") { 
+						make_path("${output_dir}\\${subfolder}");
+					}
+					open (OUTPUT_FILE, ">>", "${new_filename}") || die "problem opening \(DEFAULT 252\): ${new_filename}\n";
+					print OUTPUT_FILE "$OUTBOUND_EDI_LINES"."$line";
+					print OUTPUT_FILE "END: 252"; close (OUTPUT_FILE);
+					
+					my $move_filename = "${log_user}move_${log_batchsuffix}.bat";
+					open (S_TO_FOLDERS, ">>", "${move_filename}") || die "problem opening \(DEFAULT 252\): ${move_filename}\n";
+					print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${feds_folder}${FEDS} ${output_dir}\\${subfolder}" if (${FEDS} ne "");
+					print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${parcel_folder}${PCL} ${output_dir}\\${subfolder}" if (${PCL} ne "");
+					print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${Batch} ${output_dir}\\${subfolder}" if (${Batch} ne "");
+					print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${S_Batch} ${output_dir}\\${subfolder}" if (${S_Batch} ne "");
+					print S_TO_FOLDERS "\n${subfolder}\:move /-Y \.\\${gfile}_S ${output_dir}\\${subfolder}";
+					close (S_TO_FOLDERS);
+					
+					$OUTBOUND_EDI_LINES = ''; #($FLAG, $OUTBOUND_EDI_LINES) = '';
+					
+				}				
+			}
+			#FOR INBOUND EDI (TRN/PMF/MAP/MBO + GEN/ENV) ERRORS
+			#Error to skip
+			elsif ( $line =~ /^.{34} MBO ERR DES   Error: Source file does not exist\./ ) { 
+				$FLAG = "";
+				$OUTBOUND_EDI_LINES = "";
+			} #MBO ERR DES
+			elsif ( $line =~ /^.{34} GEN WRN DES   No FEDS files queued for Generate/ ) { 
+				$FLAG = "";
+				$OUTBOUND_EDI_LINES = "";
+			} #MBO ERR DES   Error: Source file does not exist.
+			
+#			#warnings to skip
+#			elsif ( $line =~ /^.{34} ENV WRN DES   No PRDI files queued for Envelope/) { 
+#				$FLAG = "";
+#				$OUTBOUND_EDI_LINES = "";
+#			} #No PRDI files queued for Envelope.
+			#TRN ERRORS
+			elsif ($line =~ /^.{35}TRN BEG BA#/) { 
+				$line =~ /^.{49}(\w+)\s+Carrier: (\S+)/;
+				($Batch, $Carrier) = ($1,$2);
+				$FLAG = "";
+				$subfolder = '';
+				$OUTBOUND_EDI_LINES = $line;
+			}
+			#writing all other error/warning lines
+			elsif ($TypeFlag eq 'WRN' or $TypeFlag eq 'ERR' or $TypeFlag eq 'NOT') {
+				$FLAG = $TypeFlag;
+				$OUTBOUND_EDI_LINES = "$OUTBOUND_EDI_LINES"."$line";
+				#print $line;
+			}
+		} #while (my $line=<INPUT_FILE>) 
+	} #foreach my $file
+
+	#write output if If $OUTBOUND_EDI_LINES has lines  and FLAG not empty
+	#print "$FLAG $OUTBOUND_EDI_LINES";
+
+	if ($FLAG ne "" && $OUTBOUND_EDI_LINES ne "") { 
+		my $rtm_name = $FEDS_HASH{$FEDS};
+		$rtm_name = $RTM if ($rtm_name eq "");
+		my $new_filename = "${output_dir}${subfolder}${logdate}#${FLAG}#${Action}#${Carrier}#${rtm_name}#${FEDS}#${PCL}#${Batch}${S_Batch}#${gfile}";
+		                    
+		if (! -d "${output_dir}\\${subfolder}") { 
+			make_path("${output_dir}\\${subfolder}");
+		}
+		open (OUTPUT_FILE, ">>", "${new_filename}") || die "problem opening \(DEFAULT 302\): ${new_filename}\n";
+		print OUTPUT_FILE $OUTBOUND_EDI_LINES;
+		print OUTPUT_FILE "END: 302"; close (OUTPUT_FILE);
+		
+		my $move_filename = "${log_user}move_${log_batchsuffix}.bat";
+		open (S_TO_FOLDERS, ">>", "${move_filename}") || die "problem opening \(DEFAULT 302\): ${move_filename}\n";
+		print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${feds_folder}${FEDS} ${output_dir}\\${subfolder}" if (${FEDS} ne "");
+		print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${parcel_folder}${PCL} ${output_dir}\\${subfolder}" if (${PCL} ne "");
+		print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${Batch} ${output_dir}\\${subfolder}" if (${Batch} ne "");
+		print S_TO_FOLDERS "\n${subfolder}\:copy /Y ${batch_folder}${S_Batch} ${output_dir}\\${subfolder}" if (${S_Batch} ne "");
+		print S_TO_FOLDERS "\n${subfolder}\:move /-Y \.\\${gfile}_S ${output_dir}\\${subfolder}";
+		close (S_TO_FOLDERS);
+			
+		#($FLAG, $Action, $TypeFlag, $InfoQual, $Info, $OUTBOUND_EDI_LINES,$gfile,$gdir) = '';
+	}
+
+#^.{38}\s(WRN|ERR|NOT)
+}
+main;
+exit 0;
